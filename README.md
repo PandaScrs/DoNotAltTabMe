@@ -4,6 +4,7 @@ Pequeño proyecto hecho en C# que incluye mejoras a la multitarea de Windows, pe
 
 ## Capturas de Pantalla
 
+![image](https://github.com/user-attachments/assets/2aeb551d-378e-4fe8-9881-84745ec53842)
 
 ## Requisitos
 
