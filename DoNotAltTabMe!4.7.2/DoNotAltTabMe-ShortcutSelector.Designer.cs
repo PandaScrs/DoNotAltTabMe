@@ -45,6 +45,15 @@ namespace DoNotAltTabMe_4._7._2
                 BackColor = ColorTranslator.FromHtml("#21262d")
             };
 
+            // Panel lateral izquierdo
+            Panel leftEdge = new Panel
+            {
+                Dock = DockStyle.Left,
+                Width = 5,
+                // BackColor = ColorTranslator.FromHtml("#7f5ea7")
+            };
+            this.Controls.Add(leftEdge);
+
             // Botón de regresar (←)
             Button backButton = new Button
             {
@@ -310,6 +319,7 @@ namespace DoNotAltTabMe_4._7._2
             mainButtonPanel.Controls.Add(btnSelect);
             mainButtonPanel.Controls.Add(btnRestore);
             mainButtonPanel.Controls.Add(btnRefresh);
+            mainPanel.Padding = new Padding(10, 50, 50, 50); // Ajustar padding izquierdo
 
             shortcutPanel.Controls.Add(lblShortcut);
             shortcutPanel.Controls.Add(btnChangeShortcut);

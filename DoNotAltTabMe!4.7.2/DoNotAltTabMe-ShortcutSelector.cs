@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace DoNotAltTabMe_4._7._2
@@ -40,14 +41,34 @@ namespace DoNotAltTabMe_4._7._2
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+
+        [DllImport("user32.dll")]
+        private static extern bool AllowSetForegroundWindow(int dwProcessId);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetLastActivePopup(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetParent(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll")]
+        private static extern int GetWindowProcessId(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
 
         private const int SW_RESTORE = 9;
 
         [DllImport("user32.dll")]
         private static extern bool IsWindow(IntPtr hWnd);
 
-        // Necesario para mover la ventana
         [DllImport("user32.dll")]
         public static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
         [DllImport("user32.dll")]
@@ -56,13 +77,34 @@ namespace DoNotAltTabMe_4._7._2
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
 
         // Constantes de estilos de ventana
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HT_CAPTION = 0x2;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+        private const int WS_EX_NOACTIVATE = 0x08000000;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const int WS_EX_TRANSPARENT = 0x00000020;
+        private const int WS_EX_LAYERED = 0x00080000;
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         private bool functionActive = false;
         private Label lblStatus;
 
@@ -122,21 +164,138 @@ namespace DoNotAltTabMe_4._7._2
             }
         }
 
-        // Manejar cuando se presiona el atajo
+        private void ShowVisualOverlay()
+        {
+            // Cerrar overlays existentes
+            var existingOverlays = Application.OpenForms.OfType<VisualOverlay>().ToList();
+            foreach (var existingOverlay in existingOverlays)
+            {
+                existingOverlay.Close();
+            }
+
+            var overlay = new VisualOverlay(orderedWindows, currentWindowIndex)
+            {
+                // Configurar propiedades de ventana fantasma
+                FormBorderStyle = FormBorderStyle.None,
+                ShowInTaskbar = false,
+                TopMost = true
+            };
+
+            // Aplicar estilo para click-through
+            SetWindowExTransparent(overlay.Handle);
+            overlay.Show();
+        }
+
+        private void SetWindowExTransparent(IntPtr hWnd)
+        {
+            ShortcutSelector.SetWindowLong(hWnd, GWL_EXSTYLE,
+                WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE);
+        }
+
+        // Función para manejar la lógica tras presionar el atajo
         private void HandleShortcutPressed()
         {
             if (orderedWindows.Count == 0) return;
 
+            // Forzar foco a la aplicación a continuación
+            AllowSetForegroundWindow(Process.GetCurrentProcess().Id);
+            SetForegroundWindow(this.Handle);
+
+
             currentWindowIndex = (currentWindowIndex + 1) % orderedWindows.Count;
             IntPtr nextWindow = orderedWindows[currentWindowIndex];
 
-            // Verificar si la ventana existe todavía
-            if (!IsWindow(nextWindow)) return;
+            if (!IsWindowValid(nextWindow))
+            {
+                orderedWindows.RemoveAt(currentWindowIndex);
+                currentWindowIndex--;
+                return;
+            }
 
-            // Traer la ventana al frente
-            SetForegroundWindow(nextWindow);
-            ShowWindow(nextWindow, SW_RESTORE);
+            // Permitir que DoNotAltTabMe! traiga ventanas al frente
+            AllowSetForegroundWindow(Process.GetCurrentProcess().Id);
+
+            // Restaurar ventana si está minimizada
+            if (IsIconic(nextWindow))
+                ShowWindow(nextWindow, SW_RESTORE);
+
+            // Método mejorado para activación
+            BringWindowToFront(nextWindow);
+
+            for (int i = 0; i < 3; i++) // 3 intentos para asegurar que esto funcione bien
+            {
+                BringWindowToFront(nextWindow);
+                Thread.Sleep(30); // Espera a que Windows Procese
+            }
+
+            // Mostrar el overlay visual
+            ShowVisualOverlay();
+
+            try
+            {
+                Process process = Process.GetProcessById(GetWindowProcessId(nextWindow));
+                process.PriorityClass = ProcessPriorityClass.High;
+            }
+            catch { }
         }
+
+        private bool IsWindowValid(IntPtr hWnd)
+        {
+            if (!IsWindow(hWnd)) return false;
+
+            // Verificar estilo de la ventana
+            int style = GetWindowLong(hWnd, GWL_EXSTYLE);
+            if ((style & WS_EX_NOACTIVATE) != 0) // 0x08000000
+            {
+                return false; // Ignorar ventanas que no pueden ser activadas
+            }
+
+            return IsWindowVisible(hWnd) && !IsSystemWindow(hWnd);
+        }
+
+        private IntPtr GetRootOwnerWindow(IntPtr hWnd)
+        {
+            IntPtr owner = hWnd;
+            while (true)
+            {
+                IntPtr parent = GetParent(owner);
+                if (parent == IntPtr.Zero) break;
+                owner = parent;
+            }
+            return owner;
+        }
+
+        private void BringWindowToFront(IntPtr hWnd)
+        {
+            // Obtener el thread de la ventana objetivo y nuestro thread
+            uint targetThreadId = GetWindowThreadProcessId(hWnd, out _);
+            uint ourThreadId = GetCurrentThreadId();
+
+            // Sincronizar inputs si son threads diferentes
+            if (targetThreadId != ourThreadId)
+            {
+                AttachThreadInput(ourThreadId, targetThreadId, true);
+            }
+
+            // Restaurar si está minimizada
+            if (IsIconic(hWnd))
+            {
+                ShowWindow(hWnd, SW_RESTORE);
+            }
+
+            // Forzar Z-Order y activación
+            SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW);
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+            SwitchToThisWindow(hWnd, true);
+
+            // Restaurar inputs si se sincronizaron
+            if (targetThreadId != ourThreadId)
+            {
+                AttachThreadInput(ourThreadId, targetThreadId, false);
+            }
+        }
+
 
         // Actualizar la lista de ventanas
         private void RefreshWindowList()
@@ -255,7 +414,11 @@ namespace DoNotAltTabMe_4._7._2
                 "MultitaskingViewFrame", // Vista de tareas
                 "Shell_SecondaryTrayWnd", // Barra de tareas secundaria
                 "NotifyIconOverflowWindow", // Área de notificación
-                "Windows.UI.Composition.DesktopWindowContentBridge" // Elementos UWP
+                "Windows.UI.Composition.DesktopWindowContentBridge", // Elementos UWP
+                "Windows.UI.Core.CoreWindow", // Ventanas de aplicaciones modernas
+                "ApplicationFrameWindow",
+                "Shell_ChromeWindow",
+                "ConsoleWindowClass" // CMD
             };
 
             // Verificar si es una ventana del sistema
@@ -263,20 +426,17 @@ namespace DoNotAltTabMe_4._7._2
                 return true;
 
             // Obtener el título de la ventana
-            var title = new StringBuilder(256);
-            GetWindowText(hWnd, title, 256);
-            string windowTitle = title.ToString().ToLower();
+            GetWindowThreadProcessId(hWnd, out uint processId);
+            try
+            {
+                var process = Process.GetProcessById((int)processId);
+                string processName = process.ProcessName.ToLower();
+                if (processName == "explorer" || processName == "searchui" || processName.Contains("windows.immersive"))
+                    return true;
+            }
+            catch { }
 
-            // Lista de títulos de ventanas del sistema a ignorar
-            string[] systemTitles = {
-                "program manager",
-                "start",
-                "cortana",
-                "task view",
-                "windows shell experience host"
-            };
-
-            return systemTitles.Any(t => windowTitle.Contains(t));
+            return false;
         }
 
         // Aplicar reglas: Ocultar todas excepto las permitidas

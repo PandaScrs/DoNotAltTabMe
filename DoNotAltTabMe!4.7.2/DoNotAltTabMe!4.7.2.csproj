@@ -12,6 +12,8 @@
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -81,6 +83,12 @@
     <Compile Include="ShortcutKeyForm.Designer.cs">
       <DependentUpon>ShortcutKeyForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="VisualOverlay.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="VisualOverlay.Designer.cs">
+      <DependentUpon>VisualOverlay.cs</DependentUpon>
+    </Compile>
     <EmbeddedResource Include="DoNotAltTabMe-AltTabSelector.resx">
       <DependentUpon>DoNotAltTabMe-AltTabSelector.cs</DependentUpon>
     </EmbeddedResource>
@@ -108,7 +116,7 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="DoNotAltTabMe.ico" />
+    <AdditionalFiles Include="DoNotAltTabMe.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
